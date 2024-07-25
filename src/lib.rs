@@ -158,10 +158,39 @@ impl Headset {
         let mut button_state = ButtonState::default();
         let mut power_state;
 
+        const TIMEOUT_IN_MS: i32 = 500;
+        const RESET_TIME_IN_SEC: i32 = 20;
+        const RESET_COUNTER_AFTER: i32 = RESET_TIME_IN_SEC * 1000 / TIMEOUT_IN_MS;
+
+        let mut counter = 0;
+
         loop {
-            match self.device.next_unrequested_msg(500).as_deref() {
+            match self.device.next_unrequested_msg(TIMEOUT_IN_MS).as_deref() {
                 Some([]) => {
-                    // Read timed out, ignore this
+                    // Read timed out, but reset the buttons periodically to survive sleeps
+                    counter += 1;
+                    if counter > RESET_COUNTER_AFTER {
+                        counter = 0;
+                        // this is a terrible hack to make it work after reboots, but I cannot be
+                        // bothered to figure out a better method to detect the unresponsiveness of
+                        // the button handlers right now, so it will have to do
+                        //
+                        // the correct method probably involved regularly querying whether the
+                        // buttons are enabled
+                        self.enable_buttons(config.button_handler.is_some()).ok();
+                        self.set_lights(&lights::Config {
+                            light: lights::Light::Side,
+                            effect: *config.side_light_effect,
+                            profile_type: lights::ProfileType::Temporary,
+                        })
+                        .ok();
+                        self.set_lights(&lights::Config {
+                            light: lights::Light::Logo,
+                            effect: *config.logo_light_effect,
+                            profile_type: lights::ProfileType::Temporary,
+                        })
+                        .ok();
+                    }
                 }
                 Some(bytes @ [0x08, 0x10 | 0x20]) => {
                     button_state.mic_arm = MicArm::from_bytes(bytes);
